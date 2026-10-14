@@ -948,6 +948,23 @@ class ParseMultipartConfig:
 
 
 @dataclasses.dataclass
+class ParseUrlEncodedConfig:
+    """This class configures the parsing of ``application/x-www-form-urlencoded`` request bodies.
+
+    Its primary purpose is to place limits on the size and complexity of request messages
+    to avoid potential denial-of-service attacks.
+
+    .. versionadded:: 6.5.8
+    """
+
+    max_arguments: int = 1000
+    """The maximum number of arguments accepted in a urlencoded request.
+
+    Each ``<input>`` element in an HTML form corresponds to at least one argument.
+    """
+
+
+@dataclasses.dataclass
 class ParseBodyConfig:
     """This class configures the parsing of request bodies.
 
@@ -956,6 +973,9 @@ class ParseBodyConfig:
 
     multipart: ParseMultipartConfig = dataclasses.field(
         default_factory=ParseMultipartConfig
+    )
+    urlencoded: ParseUrlEncodedConfig = dataclasses.field(
+        default_factory=ParseUrlEncodedConfig
     )
     """Configuration for ``multipart/form-data`` request bodies."""
 
@@ -1015,7 +1035,11 @@ def parse_body_arguments(
             )
         try:
             # real charset decoding will happen in RequestHandler.decode_argument()
-            uri_arguments = parse_qs_bytes(body, keep_blank_values=True)
+            uri_arguments = parse_qs_bytes(
+                body,
+                keep_blank_values=True,
+                max_num_fields=config.urlencoded.max_arguments,
+            )
         except Exception as e:
             raise HTTPInputError("Invalid x-www-form-urlencoded body: %s" % e) from e
         for name, values in uri_arguments.items():

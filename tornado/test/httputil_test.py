@@ -363,6 +363,57 @@ Content-Disposition: form-data; name="files"; filename="ab.txt"
             )
         self.assertIn("multipart/form-data parsing is disabled", str(cm.exception))
 
+    def test_max_parts_limit_boundary(self):
+        # The segment before the first boundary counts towards max_parts, so
+        # with max_parts=10 a body may contain at most 9 real parts.
+        part = b'--1234\r\nContent-Disposition: form-data; name="a"\r\n\r\nx\r\n'
+        config = ParseMultipartConfig(max_parts=10)
+
+        args, files = form_data_args()
+        parse_multipart_form_data(
+            b"1234", part * 9 + b"--1234--", args, files, config=config
+        )
+        self.assertEqual(args["a"], [b"x"] * 9)
+
+        args, files = form_data_args()
+        with self.assertRaises(HTTPInputError) as cm:
+            parse_multipart_form_data(
+                b"1234", part * 10 + b"--1234--", args, files, config=config
+            )
+        self.assertIn("too many parts", str(cm.exception))
+        self.assertEqual(args, {})
+
+    def test_max_parts_applied_during_split(self):
+        # A body with a huge number of parts must be rejected without first
+        # splitting it into a list holding every part (CPU and memory
+        # amplification, GHSA-8423-8fgw-73vq).
+        split_sizes: List[int] = []
+
+        class RecordingBytes(bytes):
+            def __getitem__(self, key):
+                result = super().__getitem__(key)
+                if isinstance(key, slice):
+                    return RecordingBytes(result)
+                return result
+
+            def split(self, *args, **kwargs):
+                result = super().split(*args, **kwargs)
+                split_sizes.append(len(result))
+                return result
+
+        max_parts = 10
+        num_parts = 10000
+        data = RecordingBytes(b"--1234\r\nxx" * num_parts + b"--1234--")
+        config = ParseMultipartConfig(max_parts=max_parts)
+        args, files = form_data_args()
+        with self.assertRaises(HTTPInputError) as cm:
+            parse_multipart_form_data(b"1234", data, args, files, config=config)
+        self.assertIn("too many parts", str(cm.exception))
+        self.assertTrue(split_sizes)
+        self.assertLessEqual(max(split_sizes), max_parts + 2)
+        self.assertEqual(args, {})
+        self.assertEqual(files, {})
+
 
 class HTTPHeadersTest(unittest.TestCase):
     def test_multi_line(self):

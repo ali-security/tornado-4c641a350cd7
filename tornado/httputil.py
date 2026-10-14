@@ -37,7 +37,6 @@ from urllib.parse import urlencode, urlparse, urlunparse, parse_qsl
 from tornado.escape import native_str, parse_qs_bytes, utf8, to_unicode
 from tornado.util import ObjectDict, unicode_type
 
-
 # responses is unused in this file, but we re-export it to other files.
 # Reference it so pyflakes doesn't complain.
 responses
@@ -1078,7 +1077,9 @@ def parse_multipart_form_data(
     final_boundary_index = data.rfind(b"--" + boundary + b"--")
     if final_boundary_index == -1:
         raise HTTPInputError("Invalid multipart/form-data: no final boundary found")
-    parts = data[:final_boundary_index].split(b"--" + boundary + b"\r\n")
+    parts = data[:final_boundary_index].split(
+        b"--" + boundary + b"\r\n", config.max_parts + 1
+    )
     if len(parts) > config.max_parts:
         raise HTTPInputError("multipart/form-data has too many parts")
     for part in parts:

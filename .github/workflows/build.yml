@@ -5,15 +5,6 @@
 name: Build
 
 on:
-  push:
-    branches:
-      # Run on release branches. This gives us a chance to detect rot in this
-      # configuration before pushing a tag (which we'd rather not have to undo).
-      - "branch[0-9]*"
-    tags:
-      # The main purpose of this workflow is to build wheels for release tags.
-      # It runs automatically on tags matching this pattern and pushes to pypi.
-      - "v*"
   workflow_dispatch:
     # Allow this workflow to be run manually (pushing to testpypi instead of pypi)
 
@@ -26,6 +17,7 @@ jobs:
   build_sdist:
     name: Build sdist
     runs-on: ubuntu-22.04
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
         with:
@@ -48,6 +40,7 @@ jobs:
   build_wheels:
     name: Build wheels on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -64,6 +57,15 @@ jobs:
 
       - name: Build wheels
         uses: pypa/cibuildwheel@v3.4.0
+        env:
+          # Sealed rebuild: resolve the isolated build backend (setuptools/wheel) from the
+          # release-date PyPI snapshot so the WHEEL Generator matches the public wheel.
+          CIBW_ENVIRONMENT: "PIP_INDEX_URL=https://:2026-06-08T17:34:38Z@time-machines-pypi.sealsecurity.io/"
+          # Sealed rebuild: macos-15 is arm64, so x86_64 wheels are tested under Rosetta, where
+          # timing-sensitive tests (httputil linear-performance, iostream SSL) are unreliable.
+          # The suite still runs natively on arm64 macOS; the first two selectors are the
+          # pyproject.toml test-skip values, repeated because this env var overrides them.
+          CIBW_TEST_SKIP: "*-win_arm64 cp313-musllinux_i686 *-macosx_x86_64 *-macosx_universal2:x86_64"
 
       - name: Audit ABI3 compliance
         # This may be moved into cibuildwheel itself in the future. See
@@ -79,6 +81,7 @@ jobs:
     name: Upload to PyPI (test)
     needs: [build_wheels, build_sdist]
     runs-on: ubuntu-22.04
+    timeout-minutes: 45
     if: github.repository == 'tornadoweb/tornado' && github.event_name == 'workflow_dispatch'
     permissions:
       # This permission is required for pypi's "trusted publisher" feature
@@ -99,6 +102,7 @@ jobs:
     name: Upload to PyPI (prod)
     needs: [build_wheels, build_sdist]
     runs-on: ubuntu-22.04
+    timeout-minutes: 45
     if: github.repository == 'tornadoweb/tornado' && github.event_name == 'push' && github.ref_type == 'tag' && startsWith(github.ref_name, 'v')
     permissions:
       # This permission is required for pypi's "trusted publisher" feature
